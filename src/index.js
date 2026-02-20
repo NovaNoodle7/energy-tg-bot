@@ -25,14 +25,11 @@ Available commands:
 /help - Get help with commands
 `;
 
-// Web app URL (set WEB_APP_URL in .env to your hosted web app root)
-const WEB_APP_URL = process.env.WEB_APP_URL || 'https://your-site.com';
-
 // Inline keyboard grid (menu)
 const inlineKeyboard = [
   [
-    { text: '\u00A0\u00A0\u00A0🔥 Rent Energy\u00A0\u00A0\u00A0\u00A0', web_app: { url: `${WEB_APP_URL}/menu.html` } },
-    { text: '\u00A0\u00A0\u00A0💰 Balance Top-Up\u00A0\u00A0\u00A0', web_app: { url: `${WEB_APP_URL}/topup.html` } }
+    { text: '\u00A0\u00A0\u00A0🔥 Rent Energy\u00A0\u00A0\u00A0\u00A0', callback_data: 'rent' },
+    { text: '\u00A0\u00A0\u00A0💰 Balance Top-Up\u00A0\u00A0\u00A0', callback_data: 'topup' }
   ],
   [
     { text: '\u00A0🚀 Transfer Pack\u00A0\u00A0', callback_data: 'transfer_pack' },
