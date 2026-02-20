@@ -25,6 +25,29 @@ Available commands:
 /help - Get help with commands
 `;
 
+// Inline keyboard grid (menu)
+// Build labels programmatically and pad them with non-breaking spaces to increase visual width
+const rawInline = [
+  [ ['🔥 Rent Energy','rent'], ['💰 Balance Top-Up','topup'] ],
+  [ ['🚀 Transfer Pack','transfer_pack'], ['🪄 Smart Transfer','smart_transfer'] ],
+  [ ['🏠 Smart Hosting','smart_hosting'], ['🧭 Shortcuts','shortcuts'] ],
+  [ ['📦 Bulk purchase','bulk'], ['🎁 Premium','premium'] ],
+  [ ['🛠 Manual Rental','manual_rental'], ['🔁 TRX Exchange','trx_exchange'] ],
+  [ ['🔑 APIKey(Docs)','apikey'], ['🏷 Support','support'] ]
+];
+
+// Compute padding target based on longest label, scaled by 1.7
+const allLabels = rawInline.flat().map(([t]) => t);
+const maxLen = Math.max(...allLabels.map(s => s.length));
+const targetLen = Math.ceil(maxLen * 1.7);
+const NBSP = '\u00A0';
+function padLabel(s){
+  const pad = Math.max(0, targetLen - s.length);
+  return s + NBSP.repeat(pad);
+}
+
+const inlineKeyboard = rawInline.map(row => row.map(([text, cb]) => ({ text: padLabel(text), callback_data: cb })));
+
 // Handle /start command
 bot.command('start', (ctx) => {
   const chatId = ctx.chat.id;
@@ -39,7 +62,11 @@ bot.command('start', (ctx) => {
     };
   }
   
-  ctx.reply(startMessage);
+  ctx.reply(startMessage, {
+    reply_markup: {
+      inline_keyboard: inlineKeyboard
+    }
+  });
 });
 
 // Handle /credit command
@@ -234,8 +261,70 @@ Example Usage:
 });
 
 // Handle any other text message
+// Inline button handlers (callback_data)
+bot.action('rent', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('To rent energy, view plans with /rentals or rent directly: /rent <kWh>');
+});
+
+bot.action('topup', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Add credit with /topup <amount>. Example: /topup 100');
+});
+
+bot.action('transfer_pack', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Transfer Pack feature coming soon.');
+});
+
+bot.action('smart_transfer', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Smart Transfer feature coming soon.');
+});
+
+bot.action('smart_hosting', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Smart Hosting feature coming soon.');
+});
+
+bot.action('shortcuts', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Shortcuts: use commands like /rent, /topup, /history');
+});
+
+bot.action('bulk', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Bulk purchase feature coming soon.');
+});
+
+bot.action('premium', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Premium plans info: contact Support.');
+});
+
+bot.action('manual_rental', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Manual Rental: use /rent <kWh> or contact Support.');
+});
+
+bot.action('trx_exchange', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('TRX Exchange: feature coming soon.');
+});
+
+bot.action('apikey', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('API docs: https://apitrx.com (or contact Support)');
+});
+
+bot.action('support', async (ctx) => {
+  await ctx.answerCbQuery();
+  return ctx.reply('Contact support: @apitrOn or reply here and we will assist you.');
+});
+
+// Fallback for unknown text
 bot.on('text', (ctx) => {
-  ctx.reply('I didn\'t understand that command. Use /help to see available commands.');
+  ctx.reply('I didn\'t understand that. Use the menu or /help to see available commands.');
 });
 
 // Error handling
@@ -244,6 +333,34 @@ bot.catch((err) => {
 });
 
 // Start the bot
+// Set bot profile: commands, description and short description
+(async () => {
+  try {
+    await bot.telegram.setMyCommands([
+      { command: 'start', description: 'Initialize your account' },
+      { command: 'credit', description: 'Check your credit balance' },
+      { command: 'topup', description: 'Add credit to your account' },
+      { command: 'rentals', description: 'View rental options & pricing' },
+      { command: 'rent', description: 'Rent energy (e.g., /rent 10)' },
+      { command: 'myrentals', description: 'View your active rentals' },
+      { command: 'history', description: 'View all transactions' },
+      { command: 'help', description: 'Show help and examples' }
+    ]);
+
+    await bot.telegram.setMyDescription({
+      description: 'Tron Energy Rent Bot — rent energy units, top up credit, and track transactions. Use /help for commands.'
+    });
+
+    await bot.telegram.setMyShortDescription({
+      short_description: 'Rent energy & manage credit easily.'
+    });
+
+    console.log('✅ Bot profile (commands/description) configured.');
+  } catch (err) {
+    console.error('Failed to set bot profile info:', err && err.description ? err.description : err);
+  }
+})();
+
 bot.launch();
 
 console.log('🤖 Energy Rent Bot is running...');
