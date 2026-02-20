@@ -25,28 +25,36 @@ Available commands:
 /help - Get help with commands
 `;
 
+// Web app URL (set WEB_APP_URL in .env to your hosted web app root)
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://your-site.com';
+
 // Inline keyboard grid (menu)
-// Build labels programmatically and pad them with non-breaking spaces to increase visual width
-const rawInline = [
-  [ ['🔥 Rent Energy','rent'], ['💰 Balance Top-Up','topup'] ],
-  [ ['🚀 Transfer Pack','transfer_pack'], ['🪄 Smart Transfer','smart_transfer'] ],
-  [ ['🏠 Smart Hosting','smart_hosting'], ['🧭 Shortcuts','shortcuts'] ],
-  [ ['📦 Bulk purchase','bulk'], ['🎁 Premium','premium'] ],
-  [ ['🛠 Manual Rental','manual_rental'], ['🔁 TRX Exchange','trx_exchange'] ],
-  [ ['🔑 APIKey(Docs)','apikey'], ['🏷 Support','support'] ]
+const inlineKeyboard = [
+  [
+    { text: '\u00A0\u00A0\u00A0🔥 Rent Energy\u00A0\u00A0\u00A0\u00A0', web_app: { url: `${WEB_APP_URL}/menu.html` } },
+    { text: '\u00A0\u00A0\u00A0💰 Balance Top-Up\u00A0\u00A0\u00A0', web_app: { url: `${WEB_APP_URL}/topup.html` } }
+  ],
+  [
+    { text: '\u00A0🚀 Transfer Pack\u00A0\u00A0', callback_data: 'transfer_pack' },
+    { text: '\u00A0🪄 Smart Transfer\u00A0', callback_data: 'smart_transfer' }
+  ],
+  [
+    { text: '\u00A0🏠 Smart Hosting\u00A0', callback_data: 'smart_hosting' },
+    { text: '\u00A0🧭 Shortcuts\u00A0\u00A0', callback_data: 'shortcuts' }
+  ],
+  [
+    { text: '\u00A0📦 Bulk purchase\u00A0', callback_data: 'bulk' },
+    { text: '\u00A0🎁 Premium\u00A0\u00A0\u00A0', callback_data: 'premium' }
+  ],
+  [
+    { text: '\u00A0🛠 Manual Rental\u00A0', callback_data: 'manual_rental' },
+    { text: '\u00A0🔁 TRX Exchange\u00A0', callback_data: 'trx_exchange' }
+  ],
+  [
+    { text: '\u00A0🔑 APIKey(Docs)\u00A0', callback_data: 'apikey' },
+    { text: '\u00A0🏷 Support\u00A0\u00A0', callback_data: 'support' }
+  ]
 ];
-
-// Compute padding target based on longest label, scaled by 1.7
-const allLabels = rawInline.flat().map(([t]) => t);
-const maxLen = Math.max(...allLabels.map(s => s.length));
-const targetLen = Math.ceil(maxLen * 1.7);
-const NBSP = '\u00A0';
-function padLabel(s){
-  const pad = Math.max(0, targetLen - s.length);
-  return s + NBSP.repeat(pad);
-}
-
-const inlineKeyboard = rawInline.map(row => row.map(([text, cb]) => ({ text: padLabel(text), callback_data: cb })));
 
 // Handle /start command
 bot.command('start', (ctx) => {
