@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "web/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "^/$", "dest": "/web/menu.html" },
+    { "src": "^/menu.html$", "dest": "/web/menu.html" },
+    { "src": "^/topup.html$", "dest": "/web/topup.html" },
+    { "src": "^/(.*)$", "dest": "/web/$1" }
+  ]
+}
