@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -267,34 +267,36 @@ bot.action('rent', async (ctx) => {
 });
 
 bot.action('topup', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  
   await ctx.answerCbQuery();
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
-  try {
-    const res = await axios.get(`${API_BASE}/wallet`, {
-      headers: { Authorization: `Bearer ${jwt}` }
-    });
-    
-    const { trxBalance, address } = res.data;
-    const message = `💳 Account Balance: ${trxBalance} TRX\n\n⚠️ Please transfer TRX to the address below from any wallet.\nMinimum deposit is 1 TRX per transaction.\n\n🔗 Click the address to copy (The activation fee for your address has been gifted to your account balance with your first deposit)\n\n${address}`;
-    
-    ctx.reply(message);
-  } catch (err) {
-    ctx.reply('❌ Failed to fetch wallet info.');
-    console.error('Topup error:', err.message);
-  }
+
+  const address = process.env.PLATFORM_WALLET_ADDRESS || 'TW3EzLiPVi3MGoUqBfzLkwddbCXeBJ4ayp';
+  const trxBalance = '1.100 TRX';
+
+  const message = `💰 Account Balance: ${trxBalance}\n\n⚠️ Please transfer TRX to the address below from any wallet.\nMinimum deposit is 1 TRX per transaction.\n\n👇 Click the address to copy (The activation fee for your address has been gifted to your account balance with your first deposit)\n\n`;
+
+  const keyboard = Markup.inlineKeyboard([
+    Markup.button.callback('💸 Top up USDT (Click me)', 'topup_usdt'),
+    Markup.button.callback('💰 Balance Top-Up', 'topup'),
+    Markup.button.callback('📞 Support', 'support')
+  ], { columns: 1 });
+
+  await ctx.replyWithHTML(message + `<code>${address}</code>`, keyboard);
 });
 
 bot.action('transfer_pack', async (ctx) => {
   await ctx.answerCbQuery();
   return ctx.reply('Transfer Pack feature coming soon.');
+});
+
+// Handle Top up USDT callback: reply with a valid deposit URL or instructions
+bot.action('topup_usdt', async (ctx) => {
+  await ctx.answerCbQuery();
+  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.API_BASE || null;
+  const depositUrl = base ? `${base.replace(/\/$/, '')}/deposit` : null;
+  if (depositUrl && /^https?:\/\//.test(depositUrl)) {
+    return ctx.reply(`Open this link to top up: ${depositUrl}`);
+  }
+  return ctx.reply('Please visit the platform website to deposit, or contact Support.');
 });
 
 bot.action('smart_transfer', async (ctx) => {
@@ -380,7 +382,21 @@ bot.catch((err) => {
   }
 })();
 
-bot.launch();
+// Ensure no webhook is set (prevents 409 conflict when using polling)
+(async () => {
+  try {
+    await bot.telegram.deleteWebhook();
+  } catch (err) {
+    // non-fatal
+    console.warn('deleteWebhook error (non-fatal):', err && err.description ? err.description : err.message || err);
+  }
+  try {
+    await bot.launch();
+    console.log('Bot launched (polling).');
+  } catch (err) {
+    console.error('Failed to launch bot:', err && err.description ? err.description : err);
+  }
+})();
 
 console.log('🤖 Energy Rent Bot is running...');
 
