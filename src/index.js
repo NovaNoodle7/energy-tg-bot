@@ -5,351 +5,350 @@ const axios = require('axios');
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new Telegraf(token);
 
-// Store user JWTs in memory (for production, use a database)
-const userJWTs = {};
+// Platform API configuration (uses same database as web platform)
+const PLATFORM_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+const API_BASE = PLATFORM_URL + '/api';
 
-const API_BASE = process.env.PLATFORM_API_BASE || 'https://your-platform-url/api';
+// In-memory cache for telegram_id <-> wallet_address mapping
+// This is ephemeral - just for session context during conversation
+const userSessions = {}; // { telegramId: { state: 'idle|awaiting_energy', walletAddress: '...' } }
 
 const startMessage = `
 Welcome to Energy Rent Bot! ⚡
 
-Available commands:
-/start - Show this message
-/credit - Check your credit balance
-/topup <amount> - Add credit to account
-/rentals - View energy rental options
-/rent <amount> - Rent energy units
-/myrentals - View your active rentals
-/history - View transaction history
-/help - Get help with commands
+This bot connects to your Tron Energy platform account.
+
+Available actions:
+• 🔥 Rent Energy - Get energy from platform
+• 💰 Balance Top-Up - Add TRX to your account
+• 💳 Check Balance - View your current balance
+• 📊 Transaction History - See your activity
 `;
 
-const inlineKeyboard = [
+const mainKeyboard = [
   [
-    { text: '🔥 Rent Energy', callback_data: 'rent' },
-    { text: '💰 Balance Top-Up', callback_data: 'topup' }
+    { text: '🔥 Rent Energy', callback_data: 'rent_energy' },
+    { text: '💰 Top-Up', callback_data: 'topup' }
   ],
   [
-    { text: '🚀 Transfer Pack', callback_data: 'transfer_pack' },
-    { text: '🪄 Smart Transfer', callback_data: 'smart_transfer' }
+    { text: '💳 Check Balance', callback_data: 'check_balance' },
+    { text: '📊 History', callback_data: 'history' }
   ],
   [
-    { text: '🏠 Smart Hosting', callback_data: 'smart_hosting' },
-    { text: '🧭 Shortcuts', callback_data: 'shortcuts' }
-  ],
-  [
-    { text: '📦 Bulk purchase', callback_data: 'bulk' },
-    { text: '🎁 Premium', callback_data: 'premium' }
-  ],
-  [
-    { text: '🛠 Manual Rental', callback_data: 'manual_rental' },
-    { text: '🔁 TRX Exchange', callback_data: 'trx_exchange' }
-  ],
-  [
-    { text: '🔑 APIKey(Docs)', callback_data: 'apikey' },
-    { text: '🏷 Support', callback_data: 'support' }
+    { text: '📞 Support', callback_data: 'support' }
   ]
 ];
 
-// Handle /start command
-bot.command('start', async (ctx) => {
-  ctx.reply(startMessage, {
-    reply_markup: { inline_keyboard: inlineKeyboard }
-  });
-});
+// ============ HELPER FUNCTIONS ============
 
-// ...removed Telegram linking logic...
-
-// Handle /credit command
-bot.command('credit', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
+/**
+ * Register or get Telegram user from platform
+ */
+async function registerOrGetUser(telegramId, telegramUsername) {
   try {
-    const res = await axios.get(`${API_BASE}/wallet`, {
-      headers: { Authorization: `Bearer ${jwt}` }
+    // Try to register new user
+    const response = await axios.post(`${API_BASE}/auth/telegram/register`, {
+      telegram_id: telegramId,
+      telegram_username: telegramUsername
     });
     
-    const { trxBalance, address } = res.data;
-    ctx.reply(`💳 Your Credit Balance: ${trxBalance} TRX\nDeposit Address: ${address}`);
+    return {
+      userId: response.data.user_id,
+      walletAddress: response.data.wallet_address,
+      isNew: true
+    };
   } catch (err) {
-    ctx.reply('❌ Failed to fetch wallet info.');
-    console.error('Wallet fetch error:', err.message);
-  }
-});
-
-// Handle /topup command
-bot.command('topup', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
-  try {
-    const res = await axios.get(`${API_BASE}/wallet`, {
-      headers: { Authorization: `Bearer ${jwt}` }
-    });
-    
-    const { trxBalance, address } = res.data;
-    const message = `💳 Account Balance: ${trxBalance} TRX\n\n⚠️ Please transfer TRX to the address below from any wallet.\nMinimum deposit is 1 TRX per transaction.\n\n🔗 Click the address to copy (The activation fee for your address has been gifted to your account balance with your first deposit)\n\n${address}`;
-    
-    ctx.reply(message);
-  } catch (err) {
-    ctx.reply('❌ Failed to fetch wallet info.');
-    console.error('Topup error:', err.message);
-  }
-});
-
-// Handle /rentals command
-bot.command('rentals', (ctx) => {
-  const rentalOptions = `
-⚡ Energy Rental Options:
-
-Available Plans:
-🔋 Small: 10 kWh
-🔋 Medium: 25 kWh
-🔋 Large: 50 kWh
-🔋 Custom: /rent <amount> kWh
-
-Usage: /rent 10 (for 10 kWh)
-  `;
-  
-  ctx.reply(rentalOptions);
-});
-
-// Handle /rent command for energy rental
-bot.command('rent', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  const amount = parseFloat(ctx.args[0]);
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
-  if (!ctx.args.length || isNaN(amount) || amount <= 0) {
-    ctx.reply('❌ Please provide a valid energy amount in kWh. Example: /rent 10');
-    return;
-  }
-  
-  try {
-    const res = await axios.post(`${API_BASE}/energy/rent`, {
-      receiverAddress: '',
-      energyAmount: amount,
-      duration: 1
-    }, {
-      headers: { Authorization: `Bearer ${jwt}` }
-    });
-    
-    if (res.data && res.data.success) {
-      ctx.reply(`⚡ Energy rental successful! Amount: ${amount} kWh`);
-    } else {
-      ctx.reply('❌ Energy rental failed.');
-    }
-  } catch (err) {
-    ctx.reply('❌ Error renting energy.');
-    console.error('Energy rent error:', err.message);
-  }
-});
-
-// Handle /myrentals command
-bot.command('myrentals', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
-  try {
-    const res = await axios.get(`${API_BASE}/seller/rentals`, {
-      headers: { Authorization: `Bearer ${jwt}` }
-    });
-    
-    const rentals = res.data.rentals || [];
-    if (rentals.length === 0) {
-      ctx.reply('No active rentals.');
-      return;
-    }
-    
-    let rentalMessage = '⚡ Your Active Rentals:\n\n';
-    rentals.forEach((rental, index) => {
-      rentalMessage += `${index + 1}. ${rental.amount} kWh\n   ID: ${rental.id}\n   Cost: ${rental.cost} TRX\n   Started: ${rental.rental_created_at}\n\n`;
-    });
-    
-    ctx.reply(rentalMessage);
-  } catch (err) {
-    ctx.reply('❌ Failed to fetch rentals.');
-    console.error('Rentals fetch error:', err.message);
-  }
-});
-
-// Handle /history command
-bot.command('history', async (ctx) => {
-  const chatId = ctx.chat.id;
-  const jwt = userJWTs[chatId];
-  
-  if (!jwt) {
-    ctx.reply('Please link your Telegram account first with /start.');
-    return;
-  }
-  
-  try {
-    const res = await axios.get(`${API_BASE}/transactions`, {
-      headers: { Authorization: `Bearer ${jwt}` }
-    });
-    
-    const transactions = res.data.transactions || [];
-    if (transactions.length === 0) {
-      ctx.reply('No transaction history yet.');
-      return;
-    }
-    
-    let historyMessage = '📊 Transaction History:\n\n';
-    transactions.forEach((tx, index) => {
-      const date = tx.transaction_created_at || tx.date;
-      const icon = tx.transaction_type === 'deposit' ? '✅' : '⚡';
-      
-      if (tx.transaction_type === 'deposit') {
-        historyMessage += `${icon} ${index + 1}. Credit Top-up: +${tx.transaction_amount} TRX (${date})\n`;
-      } else {
-        historyMessage += `${icon} ${index + 1}. Energy Rental: ${tx.transaction_amount} kWh, -${tx.transaction_amount} TRX (${date})\n`;
+    if (err.response?.status === 409 || err.response?.data?.message?.includes('already')) {
+      // User already exists, get their info
+      try {
+        const response = await axios.get(`${API_BASE}/wallet/info`, {
+          params: { telegram_id: telegramId }
+        });
+        return {
+          userId: response.data.user_id,
+          walletAddress: response.data.wallet_address,
+          isNew: false
+        };
+      } catch (getErr) {
+        throw getErr;
       }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Get user wallet info
+ */
+async function getUserWallet(telegramId) {
+  try {
+    const response = await axios.get(`${API_BASE}/wallet/info`, {
+      params: { telegram_id: telegramId }
     });
-    
-    ctx.reply(historyMessage);
+    return response.data;
   } catch (err) {
-    ctx.reply('❌ Failed to fetch transaction history.');
-    console.error('Transaction fetch error:', err.message);
+    if (err.response?.status === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Get user balance
+ */
+async function getUserBalance(telegramId) {
+  try {
+    const response = await axios.get(`${API_BASE}/wallet/info`, {
+      params: { telegram_id: telegramId }
+    });
+    return response.data.balance;
+  } catch (err) {
+    console.error('Failed to get balance:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Rent energy for user
+ */
+async function rentEnergy(telegramId, energyAmount) {
+  try {
+    const response = await axios.post(`${API_BASE}/energy/telegram-rent`, {
+      telegram_id: telegramId,
+      energy_amount: energyAmount,
+      duration: 1
+    });
+    return response.data;
+  } catch (err) {
+    if (err.response?.status === 402) {
+      return {
+        success: false,
+        error: 'Insufficient balance',
+        details: err.response.data
+      };
+    }
+    throw err;
+  }
+}
+
+// ============ BOT COMMANDS ============
+
+/**
+ * /start - Initialize user and show main menu
+ */
+bot.command('start', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const telegramUsername = ctx.from.username || 'unknown';
+    
+    // Register user on platform (or get existing)
+    const user = await registerOrGetUser(telegramId, telegramUsername);
+    
+    // Store in session
+    userSessions[telegramId] = {
+      state: 'idle',
+      walletAddress: user.walletAddress,
+      userId: user.userId
+    };
+    
+    const welcomeMsg = user.isNew
+      ? `👋 Welcome! Your wallet has been created:\n\n<code>${user.walletAddress}</code>`
+      : `👋 Welcome back! Your wallet:\n\n<code>${user.walletAddress}</code>`;
+    
+    await ctx.reply(welcomeMsg, { parse_mode: 'HTML' });
+    await ctx.reply(startMessage, {
+      reply_markup: { inline_keyboard: mainKeyboard }
+    });
+  } catch (err) {
+    console.error('Start error:', err.message);
+    await ctx.reply('❌ Error initializing bot. Please try again.');
   }
 });
 
-// Handle /help command
-bot.command('help', (ctx) => {
-  const helpMessage = `
-📚 Command Help:
-
-💳 CREDIT MANAGEMENT:
-/credit - Check your credit balance
-/topup <amount> - Add credit (e.g., /topup 50)
-
-⚡ ENERGY RENTAL:
-/rentals - View rental options & pricing
-/rent <kWh> - Rent energy (e.g., /rent 10)
-/myrentals - View your active rentals
-
-📊 HISTORY & INFO:
-/history - View all transactions
-/help - Show this help message
-
-Example Usage:
-/topup 100     (Add 100 TRX credit)
-/rent 25       (Rent 25 kWh)
-  `;
-  
-  ctx.reply(helpMessage);
+/**
+ * Rent Energy button
+ */
+bot.action('rent_energy', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const telegramId = ctx.from.id;
+    
+    // Check if user exists in session
+    if (!userSessions[telegramId]) {
+      return ctx.reply('❌ Please use /start first to initialize your account.');
+    }
+    
+    // Get current balance
+    const balance = await getUserBalance(telegramId);
+    
+    if (balance === null) {
+      return ctx.reply('❌ Failed to fetch balance. Please try again.');
+    }
+    
+    userSessions[telegramId].state = 'awaiting_energy_amount';
+    
+    await ctx.reply(
+      `⚡ Current Balance: ${balance} TRX\n\n` +
+      `How much energy do you want to rent? (in kWh)\n` +
+      `✏️ Cost: 1 TRX per kWh`,
+      {
+        reply_markup: {
+          force_reply: true,
+          selective: true
+        }
+      }
+    );
+  } catch (err) {
+    console.error('Rent energy error:', err.message);
+    await ctx.reply('❌ Error. Please try again.');
+  }
 });
 
-// Inline button handlers (callback_data)
-bot.action('rent', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('To rent energy, view plans with /rentals or rent directly: /rent <kWh>');
-});
-
+/**
+ * Top-Up button - Show deposit address
+ */
 bot.action('topup', async (ctx) => {
-  await ctx.answerCbQuery();
-
-  const address = process.env.PLATFORM_WALLET_ADDRESS || 'TW3EzLiPVi3MGoUqBfzLkwddbCXeBJ4ayp';
-  const trxBalance = '1.100 TRX';
-
-  const message = `💰 Account Balance: ${trxBalance}\n\n⚠️ Please transfer TRX to the address below from any wallet.\nMinimum deposit is 1 TRX per transaction.\n\n👇 Click the address to copy (The activation fee for your address has been gifted to your account balance with your first deposit)\n\n`;
-
-  const keyboard = Markup.inlineKeyboard([
-    Markup.button.callback('💸 Top up USDT (Click me)', 'topup_usdt'),
-    Markup.button.callback('💰 Balance Top-Up', 'topup'),
-    Markup.button.callback('📞 Support', 'support')
-  ], { columns: 1 });
-
-  await ctx.replyWithHTML(message + `<code>${address}</code>`, keyboard);
-});
-
-bot.action('transfer_pack', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Transfer Pack feature coming soon.');
-});
-
-// Handle Top up USDT callback: reply with a valid deposit URL or instructions
-bot.action('topup_usdt', async (ctx) => {
-  await ctx.answerCbQuery();
-  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.API_BASE || null;
-  const depositUrl = base ? `${base.replace(/\/$/, '')}/deposit` : null;
-  if (depositUrl && /^https?:\/\//.test(depositUrl)) {
-    return ctx.reply(`Open this link to top up: ${depositUrl}`);
+  try {
+    await ctx.answerCbQuery();
+    const telegramId = ctx.from.id;
+    
+    const wallet = await getUserWallet(telegramId);
+    
+    if (!wallet) {
+      return ctx.reply('❌ Wallet not found. Please use /start first.');
+    }
+    
+    await ctx.reply(
+      `💰 Your Deposit Address:\n\n` +
+      `<code>${wallet.wallet_address}</code>\n\n` +
+      `📌 Send TRX from any wallet to this address.\n` +
+      `✅ Your balance will be credited automatically when the transaction is confirmed.`,
+      { 
+        parse_mode: 'HTML'
+      }
+    );
+  } catch (err) {
+    console.error('Top-up error:', err.message);
+    await ctx.reply('❌ Error. Please try again.');
   }
-  return ctx.reply('Please visit the platform website to deposit, or contact Support.');
 });
 
-bot.action('smart_transfer', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Smart Transfer feature coming soon.');
+/**
+ * Check Balance button
+ */
+bot.action('check_balance', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const telegramId = ctx.from.id;
+    
+    const wallet = await getUserWallet(telegramId);
+    
+    if (!wallet) {
+      return ctx.reply('❌ Wallet not found. Please use /start first.');
+    }
+    
+    await ctx.reply(
+      `💳 Account Balance\n\n` +
+      `Balance: <b>${wallet.balance} TRX</b>\n` +
+      `Wallet: <code>${wallet.wallet_address}</code>`,
+      { 
+        parse_mode: 'HTML'
+      }
+    );
+  } catch (err) {
+    console.error('Check balance error:', err.message);
+    await ctx.reply('❌ Error fetching balance. Please try again.');
+  }
 });
 
-bot.action('smart_hosting', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Smart Hosting feature coming soon.');
+/**
+ * History button - Show transaction history
+ */
+bot.action('history', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('📊 Transaction history feature coming soon.');
+  } catch (err) {
+    console.error('History error:', err.message);
+    await ctx.reply('❌ Error. Please try again.');
+  }
 });
 
-bot.action('shortcuts', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Shortcuts: use commands like /rent, /topup, /history');
-});
-
-bot.action('bulk', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Bulk purchase feature coming soon.');
-});
-
-bot.action('premium', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Premium plans info: contact Support.');
-});
-
-bot.action('manual_rental', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Manual Rental: use /rent <kWh> or contact Support.');
-});
-
-bot.action('trx_exchange', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('TRX Exchange: feature coming soon.');
-});
-
-bot.action('apikey', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('API docs: https://apitrx.com (or contact Support)');
-});
-
+/**
+ * Support button
+ */
 bot.action('support', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Contact support: @apitrOn or reply here and we will assist you.');
+  try {
+    await ctx.answerCbQuery();
+    await ctx.reply('📞 Support: Contact @support or visit https://your-platform.com/support');
+  } catch (err) {
+    console.error('Support error:', err.message);
+    await ctx.reply('❌ Error. Please try again.');
+  }
 });
 
-// Fallback for unknown text
-bot.on('text', (ctx) => {
-  ctx.reply('I didn\'t understand that. Use the menu or /help to see available commands.');
+// ============ TEXT MESSAGE HANDLER ============
+
+/**
+ * Handle text input (energy amount, etc.)
+ */
+bot.on('text', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const userInput = ctx.message.text?.trim();
+    const session = userSessions[telegramId];
+    
+    if (!session) {
+      return ctx.reply('❌ Please use /start first to initialize your account.');
+    }
+    
+    // Handle awaiting energy amount
+    if (session.state === 'awaiting_energy_amount') {
+      const energyAmount = parseFloat(userInput);
+      
+      if (isNaN(energyAmount) || energyAmount <= 0) {
+        return ctx.reply('❌ Please enter a valid positive number.');
+      }
+      
+      // Reset state
+      session.state = 'idle';
+      
+      // Process rental on platform
+      const result = await rentEnergy(telegramId, energyAmount);
+      
+      if (result.success) {
+        await ctx.reply(
+          `✅ Energy Rental Successful!\n\n` +
+          `⚡ Amount: ${result.energy_amount} kWh\n` +
+          `💸 Cost: ${result.cost} TRX\n` +
+          `💰 New Balance: ${result.new_balance} TRX`,
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        if (result.error === 'Insufficient balance') {
+          await ctx.reply(
+            `❌ Insufficient Balance\n\n` +
+            `Current: ${result.details.current_balance} TRX\n` +
+            `Needed: ${result.details.required_balance} TRX\n` +
+            `Short by: ${result.details.short_by} TRX\n\n` +
+            `💰 Please top-up your account first.`
+          );
+        } else {
+          await ctx.reply(`❌ Rental failed: ${result.error}`);
+        }
+      }
+    } else {
+      ctx.reply('I didn\'t understand that. Use the menu buttons or /start to get started.');
+    }
+  } catch (err) {
+    console.error('Text handler error:', err.message);
+    await ctx.reply('❌ An error occurred. Please try again.');
+  }
 });
 
-// Error handling
+// ============ ERROR HANDLING & STARTUP ============
+
 bot.catch((err) => {
   console.error('Bot error:', err);
 });
@@ -358,48 +357,36 @@ bot.catch((err) => {
 (async () => {
   try {
     await bot.telegram.setMyCommands([
-      { command: 'start', description: 'Initialize your account' },
-      { command: 'credit', description: 'Check your credit balance' },
-      { command: 'topup', description: 'Add credit to your account' },
-      { command: 'rentals', description: 'View rental options & pricing' },
-      { command: 'rent', description: 'Rent energy (e.g., /rent 10)' },
-      { command: 'myrentals', description: 'View your active rentals' },
-      { command: 'history', description: 'View all transactions' },
-      { command: 'help', description: 'Show help and examples' }
+      { command: 'start', description: 'Initialize your Telegram account' },
+      { command: 'help', description: 'Show help message' }
     ]);
 
     await bot.telegram.setMyDescription({
-      description: 'Tron Energy Rent Bot — rent energy units, top up credit, and track transactions. Use /help for commands.'
+      description: 'Tron Energy Rent Bot - Rent energy and manage your account via Telegram'
     });
 
-    await bot.telegram.setMyShortDescription({
-      short_description: 'Rent energy & manage credit easily.'
-    });
-
-    console.log('✅ Bot profile (commands/description) configured.');
+    console.log('✅ Bot profile configured');
   } catch (err) {
-    console.error('Failed to set bot profile info:', err && err.description ? err.description : err);
+    console.error('Failed to configure bot profile:', err.message);
   }
 })();
 
-// Ensure no webhook is set (prevents 409 conflict when using polling)
+// Ensure no webhook conflicts
 (async () => {
   try {
     await bot.telegram.deleteWebhook();
   } catch (err) {
-    // non-fatal
-    console.warn('deleteWebhook error (non-fatal):', err && err.description ? err.description : err.message || err);
+    console.warn('deleteWebhook warning (non-fatal):', err.message);
   }
+
   try {
     await bot.launch();
-    console.log('Bot launched (polling).');
+    console.log('🤖 Energy Rent Bot is running (polling mode)...');
   } catch (err) {
-    console.error('Failed to launch bot:', err && err.description ? err.description : err);
+    console.error('Failed to launch bot:', err.message);
   }
 })();
 
-console.log('🤖 Energy Rent Bot is running...');
-
-// Enable graceful stop
+// Graceful shutdown
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
