@@ -27,8 +27,10 @@ Available actions:
 
 const mainKeyboard = [
   [
-    { text: '🔥 Rent Energy', callback_data: 'rent_energy' },
-    { text: '💰 Top-Up', callback_data: 'topup' }
+    { text: '🔥 Rent Energy', callback_data: 'rent_energy' }
+  ],
+  [
+    { text: '💰 Balance Top-Up', callback_data: 'topup' }
   ],
   [
     { text: '💳 Check Balance', callback_data: 'check_balance' },
@@ -110,13 +112,14 @@ async function getUserBalance(telegramId) {
 }
 
 /**
- * Rent energy for user
+ * Rent energy for user to a destination wallet
  */
-async function rentEnergy(telegramId, energyAmount) {
+async function rentEnergy(telegramId, energyAmount, destinationWallet) {
   try {
     const response = await axios.post(`${API_BASE}/energy/telegram-rent`, {
       telegram_id: telegramId,
       energy_amount: energyAmount,
+      destination_wallet: destinationWallet,
       duration: 1
     });
     return response.data;
@@ -186,12 +189,11 @@ bot.action('rent_energy', async (ctx) => {
       return ctx.reply('❌ Failed to fetch balance. Please try again.');
     }
     
-    userSessions[telegramId].state = 'awaiting_energy_amount';
+    userSessions[telegramId].state = 'awaiting_wallet_address';
     
     await ctx.reply(
       `⚡ Current Balance: ${balance} TRX\n\n` +
-      `How much energy do you want to rent? (in kWh)\n` +
-      `✏️ Cost: 1 TRX per kWh`,
+      `📮 Enter destination wallet address:`,
       {
         reply_markup: {
           force_reply: true,
@@ -303,26 +305,59 @@ bot.on('text', async (ctx) => {
       return ctx.reply('❌ Please use /start first to initialize your account.');
     }
     
+    // Handle awaiting wallet address
+    if (session.state === 'awaiting_wallet_address') {
+      const destinationWallet = userInput.trim();
+      
+      // Validate Tron address format (starts with T and is 34 chars)
+      if (!/^T[a-zA-Z0-9]{33}$/.test(destinationWallet)) {
+        return ctx.reply(
+          `❌ Invalid wallet address!\n\n` +
+          `A valid Tron address:\n` +
+          `• Starts with 'T'\n` +
+          `• Has exactly 34 characters\n` +
+          `• Example: T8xQfnkVeB...`
+        );
+      }
+      
+      // Store wallet and ask for energy amount
+      session.state = 'awaiting_energy_amount';
+      session.destinationWallet = destinationWallet;
+      
+      await ctx.reply(
+        `⚡ How much energy do you want to rent? (in kWh)\n` +
+        `✏️ Cost: 1 TRX per kWh`,
+        {
+          reply_markup: {
+            force_reply: true,
+            selective: true
+          }
+        }
+      );
+    }
     // Handle awaiting energy amount
-    if (session.state === 'awaiting_energy_amount') {
+    else if (session.state === 'awaiting_energy_amount') {
       const energyAmount = parseFloat(userInput);
       
       if (isNaN(energyAmount) || energyAmount <= 0) {
         return ctx.reply('❌ Please enter a valid positive number.');
       }
       
+      const destinationWallet = session.destinationWallet || session.walletAddress;
+      
       // Reset state
       session.state = 'idle';
       
       // Process rental on platform
-      const result = await rentEnergy(telegramId, energyAmount);
+      const result = await rentEnergy(telegramId, energyAmount, destinationWallet);
       
       if (result.success) {
         await ctx.reply(
           `✅ Energy Rental Successful!\n\n` +
           `⚡ Amount: ${result.energy_amount} kWh\n` +
           `💸 Cost: ${result.cost} TRX\n` +
-          `💰 New Balance: ${result.new_balance} TRX`,
+          `💰 New Balance: ${result.new_balance} TRX\n` +
+          `📮 Delegated to: <code>${result.wallet_address}</code>`,
           { parse_mode: 'HTML' }
         );
       } else {
