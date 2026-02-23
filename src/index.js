@@ -17,7 +17,7 @@ const userSessions = {}; // { telegramId: { state: 'idle|awaiting_energy', walle
 let pricingCache = {
   energyPerTrx: 21466,
   minRentalTrx: 1,
-  minEnergy: 21466,
+  minEnergy: null, // Will be calculated from API
   cachedAt: 0
 };
 const PRICING_CACHE_MS = 3600000; // 1 hour
@@ -37,13 +37,16 @@ async function getPricingConfig() {
     pricingCache = {
       energyPerTrx: response.data.energy_per_trx,
       minRentalTrx: response.data.min_rental_trx,
-      minEnergy: response.data.min_energy,
+      minEnergy: response.data.min_energy, // Use value from API
       cachedAt: now
     };
     return pricingCache;
   } catch (err) {
     console.error('Failed to fetch pricing config:', err.message);
-    // Return cached value or defaults
+    // Fallback: calculate minEnergy from defaults if API fails
+    if (!pricingCache.minEnergy) {
+      pricingCache.minEnergy = pricingCache.minRentalTrx * pricingCache.energyPerTrx;
+    }
     return pricingCache;
   }
 }
