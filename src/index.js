@@ -13,6 +13,41 @@ const API_BASE = PLATFORM_URL + '/api';
 // This is ephemeral - just for session context during conversation
 const userSessions = {}; // { telegramId: { state: 'idle|awaiting_energy', walletAddress: '...' } }
 
+// Cache for pricing configuration
+let pricingCache = {
+  energyPerTrx: 21466,
+  minRentalTrx: 1,
+  minEnergy: 21466,
+  cachedAt: 0
+};
+const PRICING_CACHE_MS = 3600000; // 1 hour
+
+/**
+ * Fetch pricing configuration from platform
+ */
+async function getPricingConfig() {
+  try {
+    const now = Date.now();
+    // Return cached value if still fresh
+    if (pricingCache.cachedAt && (now - pricingCache.cachedAt) < PRICING_CACHE_MS) {
+      return pricingCache;
+    }
+
+    const response = await axios.get(`${API_BASE}/config/pricing`);
+    pricingCache = {
+      energyPerTrx: response.data.energy_per_trx,
+      minRentalTrx: response.data.min_rental_trx,
+      minEnergy: response.data.min_energy,
+      cachedAt: now
+    };
+    return pricingCache;
+  } catch (err) {
+    console.error('Failed to fetch pricing config:', err.message);
+    // Return cached value or defaults
+    return pricingCache;
+  }
+}
+
 const startMessage = `
 Welcome to Energy Rent Bot! ⚡
 
@@ -189,11 +224,17 @@ bot.action('rent_energy', async (ctx) => {
       return ctx.reply('❌ Failed to fetch balance. Please try again.');
     }
     
+    // Fetch current pricing
+    const pricing = await getPricingConfig();
+    const costPerKwh = (1 / pricing.energyPerTrx).toFixed(6); // TRX per energy
+    
     userSessions[telegramId].state = 'awaiting_wallet_address';
+    userSessions[telegramId].pricing = pricing; // Store pricing in session
     
     await ctx.reply(
       `⚡ Current Balance: ${balance} TRX\n\n` +
-      `📮 Enter destination wallet address:`,
+      `📮 Enter destination wallet address:\n` +
+      `(Minimum rent: ${pricing.minEnergy} kWh = ${pricing.minRentalTrx} TRX)`,
       {
         reply_markup: {
           force_reply: true,
@@ -324,9 +365,13 @@ bot.on('text', async (ctx) => {
       session.state = 'awaiting_energy_amount';
       session.destinationWallet = destinationWallet;
       
+      const pricing = session.pricing || await getPricingConfig();
+      const costPerKwh = (1 / pricing.energyPerTrx).toFixed(6);
+      
       await ctx.reply(
         `⚡ How much energy do you want to rent? (in kWh)\n` +
-        `✏️ Cost: 1 TRX per kWh`,
+        `✏️ Cost: ${costPerKwh} TRX per kWh\n` +
+        `⚠️ Minimum: ${pricing.minEnergy} kWh`,
         {
           reply_markup: {
             force_reply: true,
@@ -343,6 +388,17 @@ bot.on('text', async (ctx) => {
         return ctx.reply('❌ Please enter a valid positive number.');
       }
       
+      const pricing = session.pricing || await getPricingConfig();
+      
+      if (energyAmount < pricing.minEnergy) {
+        return ctx.reply(
+          `❌ Minimum energy requirement not met!\n\n` +
+          `You must rent at least ${pricing.minEnergy} kWh\n` +
+          `(Due to Tron blockchain minimum delegation of ${pricing.minRentalTrx} TRX)\n\n` +
+          `Please enter ${pricing.minEnergy} or more.`
+        );
+      }
+      
       const destinationWallet = session.destinationWallet || session.walletAddress;
       
       // Reset state
@@ -352,11 +408,12 @@ bot.on('text', async (ctx) => {
       const result = await rentEnergy(telegramId, energyAmount, destinationWallet);
       
       if (result.success) {
+        const costPerKwh = (1 / pricing.energyPerTrx).toFixed(6);
         await ctx.reply(
           `✅ Energy Rental Successful!\n\n` +
           `⚡ Amount: ${result.energy_amount} kWh\n` +
-          `💸 Cost: ${result.cost} TRX\n` +
-          `💰 New Balance: ${result.new_balance} TRX\n` +
+          `💸 Cost: ${result.cost.toFixed(6)} TRX\n` +
+          `💰 New Balance: ${result.new_balance.toFixed(8)} TRX\n` +
           `📮 Delegated to: <code>${result.wallet_address}</code>`,
           { parse_mode: 'HTML' }
         );
@@ -364,9 +421,9 @@ bot.on('text', async (ctx) => {
         if (result.error === 'Insufficient balance') {
           await ctx.reply(
             `❌ Insufficient Balance\n\n` +
-            `Current: ${result.details.current_balance} TRX\n` +
-            `Needed: ${result.details.required_balance} TRX\n` +
-            `Short by: ${result.details.short_by} TRX\n\n` +
+            `Current: ${result.details.current_balance.toFixed(6)} TRX\n` +
+            `Needed: ${result.details.required_balance.toFixed(6)} TRX\n` +
+            `Short by: ${result.details.short_by.toFixed(6)} TRX\n\n` +
             `💰 Please top-up your account first.`
           );
         } else {
