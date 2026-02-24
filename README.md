@@ -77,12 +77,19 @@ Bot: 📊 Payment History:
      1. $100.00 - 2/20/2026
 ```
 
+## Link Telegram (web account linking)
+
+Users can link their web platform account to the bot so that the same deposit wallet, balance, and rental history are used on both. The bot handles the deep link (`/start <token>`) and calls your backend to complete the link. To add the “Link Telegram” button and backend APIs on your web platform, see **[docs/LINK_TELEGRAM_WEB.md](docs/LINK_TELEGRAM_WEB.md)** for the API contract and a sample account page.
+
 ## Project Structure
 
 ```
 energy-tg-bot/
 ├── src/
 │   └── index.js          # Main bot logic
+├── docs/
+│   ├── LINK_TELEGRAM_WEB.md   # Web platform API + UI guide
+│   └── sample-account-link-telegram.html  # Sample account page
 ├── .env.example          # Environment variables template
 ├── .env                  # Environmental variables (not in git)
 ├── package.json          # Project dependencies

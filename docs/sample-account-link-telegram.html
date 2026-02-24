@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account – Link Telegram (sample)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    button { padding: 0.5rem 1rem; cursor: pointer; background: #0088cc; color: #fff; border: none; border-radius: 6px; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .message { margin-top: 0.5rem; color: #333; }
+    .error { color: #c00; }
+    .hint { font-size: 0.875rem; color: #666; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Account</h1>
+  <div class="card">
+    <p><strong>Telegram</strong></p>
+    <p id="status">Not linked</p>
+    <button id="link-telegram">Link Telegram</button>
+    <p id="message" class="message"></p>
+    <p class="hint">Set <code>window.API_BASE</code> or edit this file to point to your backend (e.g. https://your-app.com/api).</p>
+  </div>
+
+  <script>
+    // Point this to your platform API (same origin or CORS-enabled).
+    const API_BASE = window.API_BASE || 'http://localhost:3000/api';
+
+    document.getElementById('link-telegram').onclick = async function () {
+      const btn = this;
+      const msg = document.getElementById('message');
+      const status = document.getElementById('status');
+      btn.disabled = true;
+      msg.textContent = '';
+      msg.classList.remove('error');
+      try {
+        const res = await fetch(`${API_BASE}/account/telegram/generate-link-token`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || data.error || 'Failed to get link');
+        const link = data.telegram_link || ('https://t.me/YourBot?start=' + (data.link_token || ''));
+        window.open(link, '_blank');
+        msg.textContent = 'Open Telegram and tap "Start" in the bot chat to complete linking.';
+      } catch (e) {
+        msg.textContent = 'Error: ' + e.message;
+        msg.classList.add('error');
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>

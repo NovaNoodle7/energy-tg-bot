@@ -176,14 +176,74 @@ async function rentEnergy(telegramId, energyAmount, destinationWallet) {
 // ============ BOT COMMANDS ============
 
 /**
- * /start - Initialize user and show main menu
+ * /start - Initialize user and show main menu.
+ * If startPayload is present (deep link from web "Link Telegram"), complete account link first.
  */
 bot.command('start', async (ctx) => {
   try {
     const telegramId = ctx.from.id;
     const telegramUsername = ctx.from.username || 'unknown';
+    const linkToken = (ctx.startPayload || ctx.payload || '').trim();
 
-    // Get or create platform user for this telegram_id
+    // Deep link from web: user clicked "Link Telegram" and opened t.me/Bot?start=TOKEN
+    if (linkToken) {
+      try {
+        const resp = await axios.post(`${API_BASE}/auth/telegram/link`, {
+          code: linkToken,
+          telegram_id: telegramId,
+          telegram_username: telegramUsername
+        });
+
+        if (resp.data && (resp.data.linked === true || resp.data.success === true)) {
+          const walletInfo = await getUserWallet(telegramId);
+          if (walletInfo) {
+            userSessions[telegramId] = {
+              state: 'idle',
+              walletAddress: walletInfo.wallet_address,
+              userId: walletInfo.user_id
+            };
+          } else {
+            userSessions[telegramId] = { state: 'idle' };
+          }
+          await ctx.reply(
+            '✅ Your Telegram is linked to your web account.\n\n' +
+            'You’ll see the same balance, deposit wallet, and history here and on the website.',
+            { reply_markup: { inline_keyboard: mainKeyboard } }
+          );
+          return;
+        }
+      } catch (e) {
+        const status = e.response?.status;
+        const data = e.response?.data;
+        if (status === 400 || status === 404 || (data && (data.code === 'expired' || data.code === 'already_used'))) {
+          await ctx.reply(
+            '⚠️ This link has expired or was already used.\n\n' +
+            'Open your account on the website and click “Link Telegram” again to get a new link.'
+          );
+          return;
+        }
+        if (status === 409 || (data && data.message && data.message.toLowerCase().includes('already linked'))) {
+          await ctx.reply('✅ This Telegram account is already linked to a web account. Use the menu below.');
+          const walletInfo = await getUserWallet(telegramId);
+          if (walletInfo) {
+            userSessions[telegramId] = {
+              state: 'idle',
+              walletAddress: walletInfo.wallet_address,
+              userId: walletInfo.user_id
+            };
+            await ctx.reply(startMessage, { reply_markup: { inline_keyboard: mainKeyboard } });
+          }
+          return;
+        }
+        console.error('link-from-web error:', e.response?.data || e.message);
+      }
+      await ctx.reply(
+        '❌ Could not link your account. Please try again from the website (Account → Link Telegram).'
+      );
+      return;
+    }
+
+    // Normal /start: get or create platform user and show main menu
     let walletInfo = await getUserWallet(telegramId);
     if (!walletInfo) {
       const registered = await registerOrGetUser(telegramId, telegramUsername);
