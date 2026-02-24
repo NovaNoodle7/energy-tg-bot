@@ -183,104 +183,26 @@ bot.command('start', async (ctx) => {
     const telegramId = ctx.from.id;
     const telegramUsername = ctx.from.username || 'unknown';
 
-    // Check if this telegram_id is already linked to a platform user
-    const walletInfo = await getUserWallet(telegramId);
-    if (walletInfo) {
-      // Existing linked user
-      userSessions[telegramId] = {
-        state: 'idle',
-        walletAddress: walletInfo.wallet_address,
-        userId: walletInfo.user_id
+    // Get or create platform user for this telegram_id
+    let walletInfo = await getUserWallet(telegramId);
+    if (!walletInfo) {
+      const registered = await registerOrGetUser(telegramId, telegramUsername);
+      walletInfo = {
+        wallet_address: registered.walletAddress,
+        user_id: registered.userId
       };
-
-      await ctx.reply(startMessage, { reply_markup: { inline_keyboard: mainKeyboard } });
-      return;
     }
 
-    // Not linked — offer options to link existing web account or create a new account
-    userSessions[telegramId] = { state: 'idle' };
-    const linkKeyboard = [
-      [{ text: '🔗 Link Web Account', callback_data: 'link_web' }],
-      [{ text: '🆕 Create New Account', callback_data: 'create_wallet' }]
-    ];
-
-    await ctx.reply(
-      "It looks like you don't have a linked web account. Would you like to link an existing web account, or create a new account?",
-      { reply_markup: { inline_keyboard: linkKeyboard } }
-    );
-  } catch (err) {
-    console.error('Start error:', err.message);
-    await ctx.reply('❌ Error initializing bot. Please try again.');
-  }
-});
-
-// Action: user wants to link existing web account (via signed token deep-link)
-bot.action('link_web', async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    const telegramUsername = ctx.from.username;
-    userSessions[telegramId] = userSessions[telegramId] || { state: 'idle' };
-
-    // Request server to generate a signed token for this telegram_id
-    try {
-      const resp = await axios.post(
-        `${API_BASE}/account/telegram/generate-by-bot`,
-        { telegram_id: telegramId, telegram_username: telegramUsername, ttl_minutes: 10 }
-      );
-
-      if (resp.data && resp.data.signed_token) {
-        // Use signed token to create a login link
-        const link = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/account/telegram/link?code=${encodeURIComponent(resp.data.signed_token)}`;
-        
-        // Send link directly without button
-        await ctx.reply(
-          `🔗 Click the link below to copy it, then open it in your browser:\n\n<code>${link}</code>`,
-          { parse_mode: 'HTML' }
-        );
-        return;
-      } else if (resp.data && resp.data.link) {
-        // Fallback: use regular link if signed_token not available
-        await ctx.reply(
-          `🔗 I generated a web login link for you. Click it to open the website:\n\n${resp.data.link}`
-        );
-        return;
-      }
-    } catch (e) {
-      console.error('Bot generate-by-bot error:', e.response?.data || e.message);
-      // Fall back to asking for manual code paste
-    }
-
-    // Fallback: ask user to paste a code generated on the web
-    userSessions[telegramId].state = 'awaiting_link_code';
-    await ctx.reply('Please paste the link code generated on the web app (Account → Link Telegram).');
-  } catch (err) {
-    console.error('link_web action error:', err.message);
-    await ctx.reply('❌ Error. Please try again.');
-  }
-});
-
-// Action: create a new wallet for this Telegram user via platform
-bot.action('create_wallet', async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    const telegramUsername = ctx.from.username || 'unknown';
-
-    const response = await axios.post(`${API_BASE}/auth/telegram/register`, {
-      telegram_id: telegramId,
-      telegram_username: telegramUsername
-    });
-
-    const userId = response.data.user_id;
-    const walletAddress = response.data.wallet_address;
-
-    userSessions[telegramId] = { state: 'idle', walletAddress, userId };
+    userSessions[telegramId] = {
+      state: 'idle',
+      walletAddress: walletInfo.wallet_address,
+      userId: walletInfo.user_id
+    };
 
     await ctx.reply(startMessage, { reply_markup: { inline_keyboard: mainKeyboard } });
   } catch (err) {
-    console.error('create_wallet error:', err.response?.data || err.message);
-    await ctx.reply('❌ Failed to create wallet. Please try again.');
+    console.error('Start error:', err.message);
+    await ctx.reply('❌ Error initializing bot. Please try again.');
   }
 });
 
