@@ -193,21 +193,19 @@ bot.command('start', async (ctx) => {
         userId: walletInfo.user_id
       };
 
-      const welcomeMsg = `👋 Welcome back! Your wallet:\n\n<code>${walletInfo.wallet_address}</code>`;
-      await ctx.reply(welcomeMsg, { parse_mode: 'HTML' });
       await ctx.reply(startMessage, { reply_markup: { inline_keyboard: mainKeyboard } });
       return;
     }
 
-    // Not linked — offer options to link existing web account or create a new wallet
+    // Not linked — offer options to link existing web account or create a new account
     userSessions[telegramId] = { state: 'idle' };
     const linkKeyboard = [
       [{ text: '🔗 Link Web Account', callback_data: 'link_web' }],
-      [{ text: '🆕 Create New Wallet', callback_data: 'create_wallet' }]
+      [{ text: '🆕 Create New Account', callback_data: 'create_wallet' }]
     ];
 
     await ctx.reply(
-      "It looks like you don't have a linked web account. Would you like to link an existing web account, or create a new wallet?",
+      "It looks like you don't have a linked web account. Would you like to link an existing web account, or create a new account?",
       { reply_markup: { inline_keyboard: linkKeyboard } }
     );
   } catch (err) {
@@ -221,26 +219,25 @@ bot.action('link_web', async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const telegramId = ctx.from.id;
+    const telegramUsername = ctx.from.username;
     userSessions[telegramId] = userSessions[telegramId] || { state: 'idle' };
 
     // Request server to generate a signed token for this telegram_id
     try {
       const resp = await axios.post(
         `${API_BASE}/account/telegram/generate-by-bot`,
-        { telegram_id: telegramId, ttl_minutes: 10 }
+        { telegram_id: telegramId, telegram_username: telegramUsername, ttl_minutes: 10 }
       );
 
       if (resp.data && resp.data.signed_token) {
         // Use signed token to create a login link
         const link = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/account/telegram/link?code=${encodeURIComponent(resp.data.signed_token)}`;
-        const deepLink = `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || 'energy_rent_bot'}?start=${encodeURIComponent(resp.data.signed_token)}`;
         
+        // Send link directly without button
         await ctx.reply(
-          `🔗 Click here to link your account:\n\n${link}`
+          `🔗 Click the link below to copy it, then open it in your browser:\n\n<code>${link}</code>`,
+          { parse_mode: 'HTML' }
         );
-        if (deepLink) {
-          await ctx.reply(`📱 Or open Telegram deep-link to auto-open bot:\n${deepLink}`);
-        }
         return;
       } else if (resp.data && resp.data.link) {
         // Fallback: use regular link if signed_token not available
@@ -280,7 +277,6 @@ bot.action('create_wallet', async (ctx) => {
 
     userSessions[telegramId] = { state: 'idle', walletAddress, userId };
 
-    await ctx.reply(`👋 Wallet created:\n\n<code>${walletAddress}</code>`, { parse_mode: 'HTML' });
     await ctx.reply(startMessage, { reply_markup: { inline_keyboard: mainKeyboard } });
   } catch (err) {
     console.error('create_wallet error:', err.response?.data || err.message);
