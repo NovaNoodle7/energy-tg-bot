@@ -61,6 +61,7 @@ Available actions:
 • 💰 Balance Top-Up - Add TRX to your account
 • 💳 Check Balance - View your current balance
 • 📊 Transaction History - See your activity
+• 🔐 APIKey(Docs) - API keys & documentation
 `;
 
 const mainKeyboard = [
@@ -75,6 +76,7 @@ const mainKeyboard = [
     { text: '📊 History', callback_data: 'history' }
   ],
   [
+    { text: '🔐 APIKey(Docs)', callback_data: 'api_key_docs' },
     { text: '📞 Support', callback_data: 'support' }
   ]
 ];
@@ -376,6 +378,80 @@ bot.action('history', async (ctx) => {
     await ctx.reply('📊 Transaction history feature coming soon.');
   } catch (err) {
     console.error('History error:', err.message);
+    await ctx.reply('❌ Error. Please try again.');
+  }
+});
+
+/**
+ * API Key & Docs button - Create API key and display like reference (success message, docs link, admin link, warning, key with copy hint)
+ */
+bot.action('api_key_docs', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const telegramId = ctx.from.id;
+    const botApiKey = process.env.BOT_API_KEY;
+
+    if (!botApiKey) {
+      await ctx.reply('❌ API key service is not configured (BOT_API_KEY missing).');
+      return;
+    }
+
+    const startTime = Date.now();
+    let response;
+    try {
+      response = await axios.post(
+        `${API_BASE}/auth/telegram/create-api-key`,
+        { telegram_id: telegramId },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': botApiKey,
+          },
+        }
+      );
+    } catch (err) {
+      const status = err.response?.status;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+      if (status === 404) {
+        await ctx.reply(
+          `❌ User not found. Please use /start first to register, then try again.`
+        );
+        return;
+      }
+      if (status === 401) {
+        await ctx.reply('❌ API key service authentication failed.');
+        return;
+      }
+      if (status === 429) {
+        await ctx.reply(
+          `⏳ Too many requests. Please try again in a minute.`
+        );
+        return;
+      }
+      console.error('create-api-key error:', err.response?.data || err.message);
+      await ctx.reply(`❌ Could not create API key. Please try again.`);
+      return;
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    const data = response.data || {};
+    const secret = data.secret || '';
+    const docsUrl = data.docs_url || (PLATFORM_URL ? `${PLATFORM_URL.replace(/\/$/, '')}/docs` : '');
+
+    let text = '';
+    text += `【API Key】 Professional Energy API sent successfully in ${elapsed} seconds\n\n`;
+    if (docsUrl) {
+      text += `📄 API documentation: ${docsUrl}\n`;
+    }
+    text += `⚠️ Your API Key is as follows, please keep it safe, and if it has been leaked, you can contact customer service to replace it.\n\n`;
+    const escapedSecret = secret.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    text += `👉 Click to copy:\n<code>${escapedSecret}</code>`;
+
+    await ctx.reply(text, {
+      parse_mode: 'HTML',
+    });
+  } catch (err) {
+    console.error('API key/docs error:', err.message);
     await ctx.reply('❌ Error. Please try again.');
   }
 });
